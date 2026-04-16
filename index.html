@@ -205,6 +205,9 @@
   /* Gemini badge */
   .powered-by { font-size: 0.68rem; color: var(--muted); margin-top: 0.4rem; }
   .powered-by a { color: var(--accent); text-decoration: none; }
+  .auth-inline-status { margin-top: 0.75rem; min-height: 1.2rem; font-size: 0.8rem; color: var(--muted); }
+  .auth-inline-status.error { color: var(--loss); }
+  .auth-inline-status.success { color: var(--win); }
   @media (max-width: 720px) {
     .review-actions { width: 100%; }
     .review-actions .btn-primary, .review-actions .btn-secondary { flex: 1; }
@@ -389,6 +392,7 @@
       <button class="btn-secondary" onclick="signOutUser()">Sign Out</button>
     </div>
     <div class="api-status" id="auth-detail-status">Paste your Supabase URL and anon key in the constants near the top of the script before using sync.</div>
+    <div class="auth-inline-status" id="auth-inline-status"></div>
   </div>
   <div class="info-box import-box" id="import-local-box">
     <div class="info-box-title">Import Local Bets</div>
@@ -469,7 +473,11 @@
 const SUPABASE_URL = 'https://rpzlckocbaolvqgaopgf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwemxja29jYmFvbHZxZ2FvcGdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMTk0MzIsImV4cCI6MjA5MTg5NTQzMn0.z9SNC4cyxRTcH3kLyRbSkSoN33L7Ky7QKg7WFoTdPLs';
 // Enable Supabase RLS on the bets table so every browser request is restricted to auth.uid() = user_id.
-const GEMINI_MODEL = 'gemini-2.5-flash'; // Change this single constant if Google changes the supported vision-capable model you want to use.
+const GEMINI_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite'
+]; // Models are tried in order. Update this list if Google changes the vision-capable models available to your account.
+const GEMINI_MODEL = GEMINI_MODELS[0];
 const SPORTSBOOK_OPTIONS = ['DraftKings', 'FanDuel', 'BetMGM', 'Caesars', 'Unknown'];
 const SPORT_OPTIONS = ['NFL', 'NBA', 'MLB', 'NHL', 'NCAAF', 'NCAAB', 'Soccer', 'Tennis', 'Golf', 'MMA', 'Boxing', 'Other'];
 const BET_TYPE_OPTIONS = ['Spread', 'Moneyline', 'Over/Under', 'Parlay', 'Player Prop', 'Futures', 'Same Game Parlay', 'Other'];
@@ -516,6 +524,7 @@ let activeCloudBetCount = 0;
 let isImportingLocal = false;
 let isAuthBootstrapping = true;
 let authBootstrapError = '';
+let isAuthSubmitting = false;
 
 // ---- INIT ----
 window.onload = async () => {
@@ -640,6 +649,7 @@ function refreshAuthUI() {
   const headerPill = document.getElementById('header-auth-status');
   const stateCopy = document.getElementById('auth-state-copy');
   const detail = document.getElementById('auth-detail-status');
+  const inlineStatus = document.getElementById('auth-inline-status');
   const signinRow = document.getElementById('auth-signin-row');
   const authActions = document.getElementById('auth-auth-actions');
   const signedInActions = document.getElementById('auth-signed-in-actions');
@@ -647,8 +657,8 @@ function refreshAuthUI() {
   const signInBtn = document.getElementById('auth-sign-in-btn');
   const importBtn = document.getElementById('import-local-btn');
 
-  if (signUpBtn) signUpBtn.disabled = !isSupabaseConfigured || isAuthBootstrapping;
-  if (signInBtn) signInBtn.disabled = !isSupabaseConfigured || isAuthBootstrapping;
+  if (signUpBtn) signUpBtn.disabled = !isSupabaseConfigured || isAuthBootstrapping || isAuthSubmitting;
+  if (signInBtn) signInBtn.disabled = !isSupabaseConfigured || isAuthBootstrapping || isAuthSubmitting;
   if (importBtn) importBtn.disabled = isImportingLocal;
 
   if (!isSupabaseConfigured) {
@@ -658,6 +668,10 @@ function refreshAuthUI() {
     headerPill.className = 'auth-state-pill warn';
     stateCopy.textContent = 'Paste your Supabase project URL and anon key into the constants near the top of the script.';
     detail.textContent = 'Supabase sync is disabled until those constants are filled in.';
+    if (inlineStatus) {
+      inlineStatus.textContent = '';
+      inlineStatus.className = 'auth-inline-status';
+    }
     signinRow.style.display = 'flex';
     authActions.style.display = 'flex';
     signedInActions.style.display = 'none';
@@ -671,6 +685,10 @@ function refreshAuthUI() {
     headerPill.className = 'auth-state-pill warn';
     stateCopy.textContent = 'Checking for an existing Supabase session.';
     detail.textContent = 'If you just refreshed or reopened the app, wait a moment while the saved session is restored.';
+    if (inlineStatus) {
+      inlineStatus.textContent = '';
+      inlineStatus.className = 'auth-inline-status';
+    }
     signinRow.style.display = 'none';
     authActions.style.display = 'none';
     signedInActions.style.display = 'none';
@@ -684,6 +702,10 @@ function refreshAuthUI() {
     headerPill.className = 'auth-state-pill ok';
     stateCopy.textContent = `Signed in as ${currentUser.email}. Bets now sync from Supabase across devices.`;
     detail.textContent = 'Supabase is the source of truth for bet data. Add RLS policies before using this publicly.';
+    if (inlineStatus) {
+      inlineStatus.textContent = '';
+      inlineStatus.className = 'auth-inline-status';
+    }
     signinRow.style.display = 'none';
     authActions.style.display = 'none';
     signedInActions.style.display = 'flex';
@@ -696,9 +718,25 @@ function refreshAuthUI() {
   headerPill.className = `auth-state-pill ${authBootstrapError ? 'warn' : 'off'}`;
   stateCopy.textContent = 'Sign in with email and password to load and sync your bets across devices.';
   detail.textContent = authBootstrapError || 'Use Sign Up once for a new account, then Sign In on desktop or phone with the same credentials.';
+  if (inlineStatus) {
+    inlineStatus.textContent = authBootstrapError || '';
+    inlineStatus.className = `auth-inline-status${authBootstrapError ? ' error' : ''}`;
+  }
   signinRow.style.display = 'flex';
   authActions.style.display = 'flex';
   signedInActions.style.display = 'none';
+}
+
+function setAuthInlineStatus(message = '', tone = '') {
+  const inlineStatus = document.getElementById('auth-inline-status');
+  if (!inlineStatus) return;
+  inlineStatus.textContent = message;
+  inlineStatus.className = `auth-inline-status${tone ? ` ${tone}` : ''}`;
+}
+
+function setAuthSubmitting(nextValue) {
+  isAuthSubmitting = nextValue;
+  refreshAuthUI();
 }
 
 function updateImportLocalUI() {
@@ -724,69 +762,103 @@ function getAuthCredentials() {
 
 async function signUpWithEmailPassword() {
   if (!isSupabaseConfigured) {
+    setAuthInlineStatus('Paste your Supabase URL and anon key first.', 'error');
     showToast('Paste your Supabase URL and anon key first.', 4500);
     return;
   }
   const { email, password } = getAuthCredentials();
   if (!email) {
+    setAuthInlineStatus('Enter an email address.', 'error');
     showToast('Enter an email address.', 4500);
     return;
   }
   if (!password || password.length < 6) {
+    setAuthInlineStatus('Use a password with at least 6 characters.', 'error');
     showToast('Use a password with at least 6 characters.', 4500);
     return;
   }
 
-  const { data, error } = await supabaseClient.auth.signUp({
-    email,
-    password
-  });
-  if (error) {
-    showToast(`Sign up error: ${error.message}`, 5000);
-    return;
-  }
+  setAuthSubmitting(true);
+  setAuthInlineStatus('');
+  try {
+    const { data, error } = await supabaseClient.auth.signUp({
+      email,
+      password
+    });
+    if (error) {
+      setAuthInlineStatus(error.message, 'error');
+      showToast(`Sign up error: ${error.message}`, 5000);
+      return;
+    }
 
-  if (data.session) {
-    showToast(`Account created and signed in as ${email}`, 4500);
-    return;
+    if (data.session) {
+      setAuthInlineStatus(`Account created and signed in as ${email}.`, 'success');
+      showToast(`Account created and signed in as ${email}`, 4500);
+      return;
+    }
+    if (data.user) {
+      setAuthInlineStatus('Account created. Confirm the email in Supabase if email confirmation is enabled.', 'success');
+      showToast(`Account created for ${email}. Confirm the email in Supabase if email confirmation is enabled.`, 5500);
+      return;
+    }
+
+    setAuthInlineStatus('Sign up completed. Try signing in.', 'success');
+    showToast('Sign up completed. Try signing in.', 4500);
+  } finally {
+    setAuthSubmitting(false);
   }
-  if (data.user) {
-    showToast(`Account created for ${email}. Confirm the email in Supabase if email confirmation is enabled.`, 5500);
-    return;
-  }
-  showToast('Sign up completed. Try signing in.', 4500);
 }
 
 async function signInWithEmailPassword() {
   if (!isSupabaseConfigured) {
+    setAuthInlineStatus('Paste your Supabase URL and anon key first.', 'error');
     showToast('Paste your Supabase URL and anon key first.', 4500);
     return;
   }
   const { email, password } = getAuthCredentials();
   if (!email || !password) {
+    setAuthInlineStatus('Enter both email and password.', 'error');
     showToast('Enter both email and password.', 4500);
     return;
   }
 
-  const { error } = await supabaseClient.auth.signInWithPassword({
-    email,
-    password
-  });
-  if (error) {
-    showToast(`Sign in error: ${error.message}`, 5000);
-    return;
+  setAuthSubmitting(true);
+  setAuthInlineStatus('');
+  try {
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email,
+      password
+    });
+    if (error) {
+      setAuthInlineStatus(error.message, 'error');
+      showToast(`Sign in error: ${error.message}`, 5000);
+      return;
+    }
+
+    setAuthInlineStatus(`Signed in as ${email}.`, 'success');
+    showToast(`Signed in as ${email}`, 3500);
+  } finally {
+    setAuthSubmitting(false);
   }
-  showToast(`Signed in as ${email}`, 3500);
 }
 
 async function signOutUser() {
   if (!supabaseClient) return;
-  const { error } = await supabaseClient.auth.signOut();
-  if (error) {
-    showToast(`Sign out failed: ${error.message}`, 4500);
-    return;
+  setAuthSubmitting(true);
+  setAuthInlineStatus('');
+  try {
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) {
+      setAuthInlineStatus(error.message, 'error');
+      showToast(`Sign out failed: ${error.message}`, 4500);
+      return;
+    }
+
+    setAuthInlineStatus('Signed out.', 'success');
+    showToast('Signed out');
+  } finally {
+    setAuthSubmitting(false);
   }
-  showToast('Signed out');
 }
 
 async function refreshCloudBets() {
@@ -1011,6 +1083,7 @@ async function processScreenshots() {
       const base64 = await toBase64(file);
       const mimeType = file.type || 'image/png';
       const extraction = await extractBetsWithGemini(base64, mimeType);
+      if (extraction.model) setProgressState(item, '⏳', `Analyzed with ${extraction.model}…`);
       const normalized = extraction.bets.map(rawBet => normalizeExtractedBet(rawBet, file.name));
       normalized.forEach(bet => nextExtractedBets.push(bet));
       extractedCount += normalized.length;
@@ -1026,7 +1099,7 @@ async function processScreenshots() {
     } catch(err) {
       failedCount++;
       setProgressState(item, '❌', `Failed: ${err.userMessage || err.message}`);
-      if (err.isQuotaOrModelIssue) showToast(err.userMessage || 'The selected Gemini model or tier may not be available.', 5000);
+      showToast(err.userMessage || err.message, 6000);
     }
   }
 
@@ -1047,18 +1120,29 @@ function toBase64(file) {
 }
 
 async function extractBetsWithGemini(base64, mimeType) {
-  try {
-    const structuredData = await callGemini(base64, mimeType, true);
-    return { bets: parseGeminiStructuredResponse(structuredData), mode: 'structured' };
-  } catch (err) {
-    if (!shouldFallbackToText(err)) throw err;
-    const textData = await callGemini(base64, mimeType, false);
-    return { bets: parseGeminiTextResponse(textData), mode: 'text' };
+  let lastError = null;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const structuredData = await callGemini(base64, mimeType, true, model);
+      return { bets: parseGeminiStructuredResponse(structuredData), mode: 'structured', model };
+    } catch (err) {
+      if (shouldFallbackToText(err)) {
+        try {
+          const textData = await callGemini(base64, mimeType, false, model);
+          return { bets: parseGeminiTextResponse(textData), mode: 'text', model };
+        } catch (fallbackErr) {
+          lastError = attachGeminiModelError(fallbackErr, model);
+        }
+      } else {
+        lastError = attachGeminiModelError(err, model);
+      }
+    }
   }
+  throw lastError || new Error('Gemini extraction failed.');
 }
 
-async function callGemini(base64, mimeType, useStructuredOutput) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+async function callGemini(base64, mimeType, useStructuredOutput, modelName) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
   const body = buildGeminiRequestBody(base64, mimeType, useStructuredOutput);
   const resp = await fetch(url, {
     method: 'POST',
@@ -1068,7 +1152,7 @@ async function callGemini(base64, mimeType, useStructuredOutput) {
 
   let payload = null;
   try { payload = await resp.json(); } catch (_) {}
-  if (!resp.ok) throw buildGeminiError(resp.status, payload, useStructuredOutput);
+  if (!resp.ok) throw buildGeminiError(resp.status, payload, useStructuredOutput, modelName);
   return payload || {};
 }
 
@@ -1159,18 +1243,26 @@ function shouldFallbackToText(err) {
   return !!(err && (err.isStructuredOutputIssue || err.isParsingError));
 }
 
-function buildGeminiError(status, payload, useStructuredOutput) {
+function attachGeminiModelError(err, modelName) {
+  if (!err) return err;
+  err.modelName = modelName;
+  if (!err.userMessage) err.userMessage = `Gemini ${modelName} failed: ${err.message}`;
+  return err;
+}
+
+function buildGeminiError(status, payload, useStructuredOutput, modelName) {
   const apiError = payload?.error || {};
   const message = String(apiError.message || `HTTP ${status}`);
   const normalized = message.toLowerCase();
   const err = new Error(message);
   err.status = status;
   err.apiMessage = message;
+  err.modelName = modelName;
   err.isStructuredOutputIssue = useStructuredOutput && (normalized.includes('responsejsonschema') || normalized.includes('response schema') || normalized.includes('response_mime_type') || normalized.includes('responsemimetype') || normalized.includes('schema'));
   err.isQuotaOrModelIssue = normalized.includes('quota') || normalized.includes('billing') || normalized.includes('free tier') || normalized.includes('free-tier') || normalized.includes('rate limit') || normalized.includes('resource exhausted') || normalized.includes('model') || normalized.includes('not found') || normalized.includes('unsupported') || normalized.includes('permission denied');
   err.userMessage = err.isQuotaOrModelIssue
-    ? `Gemini could not analyze this screenshot because the selected model (${GEMINI_MODEL}) or your current tier may not be available. Check model access, quota, and billing, then try again.`
-    : `Gemini request failed: ${message}`;
+    ? `Gemini ${modelName} failed: ${message}`
+    : `Gemini request failed on ${modelName}: ${message}`;
   return err;
 }
 
