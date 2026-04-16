@@ -77,6 +77,10 @@
   .progress-status { min-width: 20px; text-align: center; }
   .progress-name { flex: 1; color: var(--text); font-size: 0.82rem; }
   .progress-state { color: var(--muted); font-size: 0.76rem; }
+  .upload-helper { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .upload-helper-note { color: var(--muted); font-size: 0.82rem; }
+  .upload-helper-link { background: none; border: 1px solid var(--border); color: var(--muted); padding: 0.45rem 0.8rem; border-radius: 8px; cursor: pointer; font-size: 0.78rem; font-family: 'DM Sans', sans-serif; transition: all 0.2s; }
+  .upload-helper-link:hover { border-color: var(--accent); color: var(--accent); }
   .review-summary { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
   .review-meta { color: var(--muted); font-size: 0.8rem; }
   .review-actions { display: flex; gap: 0.65rem; flex-wrap: wrap; }
@@ -104,6 +108,15 @@
   .api-save-btn:hover { border-color: var(--accent); color: var(--accent); }
   .api-status { font-size: 0.76rem; margin-top: 0.5rem; color: var(--muted); }
   .api-status.ok { color: var(--win); }
+  .auth-status-line { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+  .auth-state-pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.18rem 0.55rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .auth-state-pill.ok { color: var(--win); border-color: rgba(61,255,192,0.3); }
+  .auth-state-pill.warn { color: var(--push); border-color: rgba(245,200,66,0.3); }
+  .auth-state-pill.off { color: var(--loss); border-color: rgba(255,77,109,0.3); }
+  .auth-copy { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+  .auth-actions { display: flex; gap: 0.65rem; flex-wrap: wrap; margin-top: 0.9rem; }
+  .import-box { display: none; }
+  .import-box.show { display: block; }
 
   /* TABLE */
   .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
@@ -194,6 +207,7 @@
   @media (max-width: 720px) {
     .review-actions { width: 100%; }
     .review-actions .btn-primary, .review-actions .btn-secondary { flex: 1; }
+    .auth-actions .api-save-btn, .auth-actions .btn-secondary, .auth-actions .btn-danger { flex: 1; }
   }
 </style>
 </head>
@@ -277,12 +291,10 @@
 <!-- UPLOAD -->
 <div class="page" id="page-upload">
   <div class="info-box">
-    <div class="info-box-title">Gemini AI API Key <span style="color:var(--accent);font-weight:700">— Free</span></div>
-    <div class="api-row">
-      <input type="password" class="api-input" id="api-key-input" placeholder="Paste your Gemini API key here…" />
-      <button class="api-save-btn" onclick="saveApiKey()">Save</button>
+    <div class="upload-helper">
+      <div class="upload-helper-note">Gemini API key is managed in Settings.</div>
+      <button class="upload-helper-link" onclick="openSettingsTab()">Open Settings</button>
     </div>
-    <div class="api-status" id="api-status">No key saved. Get a free key at <a href="https://aistudio.google.com" target="_blank" style="color:var(--accent)">aistudio.google.com</a> → "Get API Key"</div>
     <div class="powered-by">Powered by <a href="https://aistudio.google.com" target="_blank">Google Gemini</a> — model availability and free-tier limits can vary by model and account.</div>
   </div>
   <div class="upload-zone" id="upload-zone">
@@ -355,6 +367,29 @@
 <!-- SETTINGS -->
   <div class="page" id="page-settings">
   <div class="info-box">
+    <div class="info-box-title">Account Sync</div>
+    <div class="auth-status-line">
+      <span class="auth-state-pill" id="auth-state-pill">Signed Out</span>
+      <span class="auth-copy" id="auth-state-copy">Sign in with email to sync bets across devices.</span>
+    </div>
+    <div class="api-row" id="auth-signin-row">
+      <input type="email" class="api-input" id="auth-email-input" placeholder="Enter your email for a magic link…" />
+      <button class="api-save-btn" id="auth-send-link-btn" onclick="sendMagicLink()">Send Magic Link</button>
+    </div>
+    <div class="auth-actions" id="auth-signed-in-actions" style="display:none">
+      <button class="api-save-btn" onclick="refreshCloudBets()">Refresh Cloud Bets</button>
+      <button class="btn-secondary" onclick="signOutUser()">Sign Out</button>
+    </div>
+    <div class="api-status" id="auth-detail-status">Paste your Supabase URL and anon key in the constants near the top of the script before using sync.</div>
+  </div>
+  <div class="info-box import-box" id="import-local-box">
+    <div class="info-box-title">Import Local Bets</div>
+    <div class="auth-copy" id="import-local-copy"></div>
+    <div class="auth-actions">
+      <button class="api-save-btn" id="import-local-btn" onclick="importLocalBetsToCloud()">Import Local Bets</button>
+    </div>
+  </div>
+  <div class="info-box">
     <div class="info-box-title">Gemini AI API Key</div>
     <div class="api-row">
       <input type="password" class="api-input" id="api-key-settings" placeholder="Paste your Gemini API key…" />
@@ -421,12 +456,18 @@
 <div id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+const SUPABASE_URL = 'https://rpzlckocbaolvqgaopgf.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwemxja29jYmFvbHZxZ2FvcGdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMTk0MzIsImV4cCI6MjA5MTg5NTQzMn0.z9SNC4cyxRTcH3kLyRbSkSoN33L7Ky7QKg7WFoTdPLs';
+// Enable Supabase RLS on the bets table so every browser request is restricted to auth.uid() = user_id.
 const GEMINI_MODEL = 'gemini-2.5-flash'; // Change this single constant if Google changes the supported vision-capable model you want to use.
 const SPORTSBOOK_OPTIONS = ['DraftKings', 'FanDuel', 'BetMGM', 'Caesars', 'Unknown'];
 const SPORT_OPTIONS = ['NFL', 'NBA', 'MLB', 'NHL', 'NCAAF', 'NCAAB', 'Soccer', 'Tennis', 'Golf', 'MMA', 'Boxing', 'Other'];
 const BET_TYPE_OPTIONS = ['Spread', 'Moneyline', 'Over/Under', 'Parlay', 'Player Prop', 'Futures', 'Same Game Parlay', 'Other'];
 const RESULT_OPTIONS = ['win', 'loss', 'push', 'pending'];
+const LEGACY_LOCAL_BETS_KEY = 'betledger_bets';
+const LOCAL_IMPORT_FLAG_PREFIX = 'betledger_local_imported_';
 const EXTRACTION_RESPONSE_SCHEMA = {
   type: 'array',
   items: {
@@ -448,9 +489,10 @@ const EXTRACTION_RESPONSE_SCHEMA = {
 };
 
 // ---- STATE ----
-let bets = JSON.parse(localStorage.getItem('betledger_bets') || '[]');
+let bets = [];
 let pendingFiles = [];
 let extractedBets = [];
+let legacyLocalBets = getLegacyLocalBets();
 // Local browser storage is acceptable only for private/local testing. Move API keys server-side before any public deployment.
 let apiKey = localStorage.getItem('betledger_gemini_key') || '';
 let editingId = null;
@@ -458,18 +500,22 @@ let gradingId = null;
 let currentTimeFilter = 'all';
 let plChartInstance = null;
 let dailyChartInstance = null;
+let supabaseClient = null;
+let currentSession = null;
+let currentUser = null;
+let isSupabaseConfigured = false;
+let activeCloudBetCount = 0;
+let isImportingLocal = false;
 
 // ---- INIT ----
-window.onload = () => {
+window.onload = async () => {
   if (apiKey) {
-    document.getElementById('api-key-input').value = apiKey;
     document.getElementById('api-key-settings').value = apiKey;
-    document.getElementById('api-status').textContent = '✓ Gemini API key saved';
-    document.getElementById('api-status').className = 'api-status ok';
   }
   document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
   renderAll();
   registerSW();
+  await initSupabase();
 };
 
 // ---- PWA SERVICE WORKER ----
@@ -493,30 +539,330 @@ function showPage(name, btn) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
+  else document.querySelector(`.nav-btn[onclick*="showPage('${name}'"]`)?.classList.add('active');
   if (name === 'bets') { renderBetsTable(); populateFilters(); }
   if (name === 'dashboard') renderDashboard();
   if (name === 'pl') renderPL();
 }
 
-// ---- API KEY (Gemini) ----
-function saveApiKey() {
-  const val = document.getElementById('api-key-input').value.trim();
-  if (!val) { showToast('Please enter your Gemini API key'); return; }
-  apiKey = val; localStorage.setItem('betledger_gemini_key', val);
-  document.getElementById('api-status').textContent = '✓ Gemini API key saved';
-  document.getElementById('api-status').className = 'api-status ok';
-  document.getElementById('api-key-settings').value = val;
-  showToast('API key saved!');
+function getLegacyLocalBets() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LEGACY_LOCAL_BETS_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
 }
+
+function hasSupabaseConfig() {
+  return !!SUPABASE_URL && !!SUPABASE_ANON_KEY && !SUPABASE_URL.includes('PASTE_YOUR_SUPABASE_URL_HERE') && !SUPABASE_ANON_KEY.includes('PASTE_YOUR_SUPABASE_ANON_KEY_HERE');
+}
+
+async function initSupabase() {
+  isSupabaseConfigured = hasSupabaseConfig() && !!window.supabase?.createClient;
+  refreshAuthUI();
+  updateImportLocalUI();
+  if (!isSupabaseConfigured) {
+    showPage('settings');
+    return;
+  }
+
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    showToast(`Supabase session error: ${error.message}`, 4500);
+    refreshAuthUI();
+    return;
+  }
+
+  supabaseClient.auth.onAuthStateChange((_event, session) => {
+    setTimeout(() => {
+      handleAuthSession(session).catch(err => showToast(err.message || 'Auth update failed', 4500));
+    }, 0);
+  });
+
+  await handleAuthSession(data?.session || null, true);
+}
+
+async function handleAuthSession(session, isInitialLoad = false) {
+  currentSession = session || null;
+  currentUser = currentSession?.user || null;
+  refreshAuthUI();
+
+  if (currentUser) {
+    await loadBetsFromCloud();
+    if (isInitialLoad) showToast(`Signed in as ${currentUser.email}`, 3000);
+    return;
+  }
+
+  activeCloudBetCount = 0;
+  bets = [];
+  extractedBets = [];
+  renderExtractedBetsReview();
+  renderAll();
+  updateImportLocalUI();
+  if (isInitialLoad) showPage('settings');
+}
+
+function refreshAuthUI() {
+  const pill = document.getElementById('auth-state-pill');
+  const stateCopy = document.getElementById('auth-state-copy');
+  const detail = document.getElementById('auth-detail-status');
+  const signinRow = document.getElementById('auth-signin-row');
+  const signedInActions = document.getElementById('auth-signed-in-actions');
+  const sendBtn = document.getElementById('auth-send-link-btn');
+  const importBtn = document.getElementById('import-local-btn');
+
+  if (sendBtn) sendBtn.disabled = !isSupabaseConfigured;
+  if (importBtn) importBtn.disabled = isImportingLocal;
+
+  if (!isSupabaseConfigured) {
+    pill.textContent = 'Config Needed';
+    pill.className = 'auth-state-pill warn';
+    stateCopy.textContent = 'Paste your Supabase project URL and anon key into the constants near the top of the script.';
+    detail.textContent = 'Supabase sync is disabled until those constants are filled in.';
+    signinRow.style.display = 'flex';
+    signedInActions.style.display = 'none';
+    return;
+  }
+
+  if (currentUser) {
+    pill.textContent = 'Signed In';
+    pill.className = 'auth-state-pill ok';
+    stateCopy.textContent = `Signed in as ${currentUser.email}. Bets now sync from Supabase across devices.`;
+    detail.textContent = 'Supabase is the source of truth for bet data. Add RLS policies before using this publicly.';
+    signinRow.style.display = 'none';
+    signedInActions.style.display = 'flex';
+    return;
+  }
+
+  pill.textContent = 'Signed Out';
+  pill.className = 'auth-state-pill off';
+  stateCopy.textContent = 'Sign in with email to load and sync your bets across devices.';
+  detail.textContent = 'A magic link will open this app and attach your cloud bet history to your account.';
+  signinRow.style.display = 'flex';
+  signedInActions.style.display = 'none';
+}
+
+function updateImportLocalUI() {
+  const box = document.getElementById('import-local-box');
+  const copy = document.getElementById('import-local-copy');
+  const button = document.getElementById('import-local-btn');
+  if (!box || !copy || !button) return;
+
+  const canImport = !!currentUser && activeCloudBetCount === 0 && legacyLocalBets.length > 0 && !hasImportedLocalForUser(currentUser.id);
+  box.classList.toggle('show', canImport);
+  if (!canImport) return;
+
+  copy.textContent = `${legacyLocalBets.length} local bet${legacyLocalBets.length !== 1 ? 's' : ''} were found in this browser. Import them once into your cloud account if this is your first sync.`;
+  button.disabled = isImportingLocal;
+  button.textContent = isImportingLocal ? 'Importing…' : 'Import Local Bets';
+}
+
+async function sendMagicLink() {
+  if (!isSupabaseConfigured) {
+    showToast('Paste your Supabase URL and anon key first.', 4500);
+    return;
+  }
+  const email = document.getElementById('auth-email-input').value.trim();
+  if (!email) {
+    showToast('Enter an email address to receive a magic link.');
+    return;
+  }
+
+  const { error } = await supabaseClient.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.href }
+  });
+  if (error) {
+    showToast(`Magic link error: ${error.message}`, 4500);
+    return;
+  }
+  showToast(`Magic link sent to ${email}`, 4500);
+}
+
+async function signOutUser() {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) {
+    showToast(`Sign out failed: ${error.message}`, 4500);
+    return;
+  }
+  showToast('Signed out');
+}
+
+async function refreshCloudBets() {
+  if (!ensureSignedIn('refresh cloud bets')) return;
+  await loadBetsFromCloud(true);
+}
+
+function ensureSignedIn(actionLabel = 'manage bets') {
+  if (currentUser) return true;
+  showToast(`Sign in from Settings to ${actionLabel}.`, 4500);
+  openSettingsTab();
+  return false;
+}
+
+function hasImportedLocalForUser(userId) {
+  return localStorage.getItem(`${LOCAL_IMPORT_FLAG_PREFIX}${userId}`) === '1';
+}
+
+function markLocalImportedForUser(userId) {
+  localStorage.setItem(`${LOCAL_IMPORT_FLAG_PREFIX}${userId}`, '1');
+}
+
+function mapCloudRowToBet(row) {
+  return {
+    id: String(row.id),
+    date: row.date || '',
+    sportsbook: row.sportsbook || 'Unknown',
+    sport: row.sport || 'Other',
+    betType: row.bet_type || 'Other',
+    description: row.description || '',
+    odds: row.odds || '',
+    wager: normalizeMoney(row.wager),
+    payout: normalizeMoney(row.payout),
+    result: normalizeResult(row.result),
+    source: row.source || 'manual'
+  };
+}
+
+function mapBetToCloudRecord(bet) {
+  return {
+    user_id: currentUser.id,
+    date: normalizeDate(bet.date),
+    sportsbook: normalizeSportsbook(bet.sportsbook),
+    sport: normalizeSport(bet.sport),
+    bet_type: normalizeBetType(bet.betType),
+    description: String(bet.description || '').trim(),
+    odds: normalizeOdds(bet.odds),
+    wager: normalizeMoney(bet.wager),
+    payout: normalizeMoney(bet.payout),
+    result: normalizeResult(bet.result),
+    source: String(bet.source || 'manual').trim() || 'manual'
+  };
+}
+
+function normalizeLegacyBetForCloud(rawBet) {
+  return {
+    date: normalizeDate(rawBet?.date),
+    sportsbook: normalizeSportsbook(rawBet?.sportsbook),
+    sport: normalizeSport(rawBet?.sport),
+    betType: normalizeBetType(rawBet?.betType),
+    description: String(rawBet?.description || '').trim(),
+    odds: normalizeOdds(rawBet?.odds),
+    wager: normalizeMoney(rawBet?.wager),
+    payout: normalizeMoney(rawBet?.payout),
+    result: normalizeResult(rawBet?.result),
+    source: String(rawBet?.source || 'legacy-import').trim() || 'legacy-import'
+  };
+}
+
+async function loadBetsFromCloud(showFeedback = false) {
+  if (!currentUser || !supabaseClient) return;
+  const { data, error } = await supabaseClient
+    .from('bets')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .order('date', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    showToast(`Cloud load failed: ${error.message}`, 4500);
+    return;
+  }
+
+  bets = (data || []).map(mapCloudRowToBet);
+  activeCloudBetCount = bets.length;
+  renderAll();
+  updateImportLocalUI();
+  if (showFeedback) showToast(`Loaded ${bets.length} cloud bet${bets.length !== 1 ? 's' : ''}`);
+}
+
+async function createCloudBet(bet) {
+  const { error } = await supabaseClient.from('bets').insert(mapBetToCloudRecord(bet));
+  if (error) throw error;
+  await loadBetsFromCloud();
+}
+
+async function updateCloudBet(id, bet) {
+  const { error } = await supabaseClient
+    .from('bets')
+    .update(mapBetToCloudRecord(bet))
+    .eq('id', id)
+    .eq('user_id', currentUser.id);
+  if (error) throw error;
+  await loadBetsFromCloud();
+}
+
+async function insertCloudBets(batch) {
+  if (!batch.length) return;
+  const payload = batch.map(mapBetToCloudRecord);
+  const { error } = await supabaseClient.from('bets').insert(payload);
+  if (error) throw error;
+  await loadBetsFromCloud();
+}
+
+async function deleteCloudBet(id) {
+  const { error } = await supabaseClient.from('bets').delete().eq('id', id).eq('user_id', currentUser.id);
+  if (error) throw error;
+  await loadBetsFromCloud();
+}
+
+async function deleteAllCloudBets() {
+  const { error } = await supabaseClient.from('bets').delete().eq('user_id', currentUser.id);
+  if (error) throw error;
+  await loadBetsFromCloud();
+}
+
+async function importLocalBetsToCloud() {
+  if (!ensureSignedIn('import local bets')) return;
+  if (!legacyLocalBets.length) {
+    showToast('No local bets found to import.');
+    return;
+  }
+  if (activeCloudBetCount > 0 || hasImportedLocalForUser(currentUser.id)) {
+    showToast('Local import is only offered once for an empty cloud account.', 4500);
+    return;
+  }
+
+  isImportingLocal = true;
+  updateImportLocalUI();
+  try {
+    const seen = new Set();
+    const unique = legacyLocalBets
+      .map(normalizeLegacyBetForCloud)
+      .filter(bet => {
+        const key = createBetFingerprint(bet);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    await insertCloudBets(unique);
+    markLocalImportedForUser(currentUser.id);
+    legacyLocalBets = getLegacyLocalBets();
+    updateImportLocalUI();
+    showToast(`Imported ${unique.length} local bet${unique.length !== 1 ? 's' : ''}`);
+  } catch (err) {
+    showToast(`Local import failed: ${err.message}`, 4500);
+  } finally {
+    isImportingLocal = false;
+    updateImportLocalUI();
+  }
+}
+
+// ---- API KEY (Gemini) ----
 function saveApiKeySettings() {
   const val = document.getElementById('api-key-settings').value.trim();
   if (!val) { showToast('Please enter your Gemini API key'); return; }
   apiKey = val; localStorage.setItem('betledger_gemini_key', val);
-  document.getElementById('api-key-input').value = val;
-  document.getElementById('api-status').textContent = '✓ Gemini API key saved';
-  document.getElementById('api-status').className = 'api-status ok';
   showToast('API key saved!');
+}
+function openSettingsTab() {
+  const settingsBtn = [...document.querySelectorAll('.nav-btn')].find(btn => btn.textContent.trim() === 'Settings');
+  if (settingsBtn) showPage('settings', settingsBtn);
+  else showPage('settings');
 }
 
 // ---- UPLOAD ----
@@ -543,7 +889,11 @@ function removeFile(i) { pendingFiles.splice(i,1); renderPreviews(); document.ge
 
 // ---- GEMINI API CALL ----
 async function processScreenshots() {
-  if (!apiKey) { showToast('Please add your Gemini API key first'); return; }
+  if (!apiKey) {
+    showToast('Add your Gemini API key in Settings before analyzing screenshots.', 4500);
+    openSettingsTab();
+    return;
+  }
   if (!pendingFiles.length) return;
 
   const btn = document.getElementById('process-btn');
@@ -917,7 +1267,8 @@ function discardExtraction() {
   showToast('Extracted bets discarded');
 }
 
-function confirmExtractedBets() {
+async function confirmExtractedBets() {
+  if (!ensureSignedIn('save reviewed bets')) return;
   if (!extractedBets.length) return;
   const ready = extractedBets.filter(b => !b.needsReview);
   const stillNeedsReview = extractedBets.filter(b => b.needsReview);
@@ -936,20 +1287,19 @@ function confirmExtractedBets() {
     additions.push({ ...bet });
   });
 
-  if (additions.length) {
-    bets.push(...additions);
-    saveBets();
-    renderAll();
+  try {
+    if (additions.length) await insertCloudBets(additions);
+    extractedBets = [...stillNeedsReview];
+    renderExtractedBetsReview();
+
+    const messages = [];
+    if (additions.length) messages.push(`Saved ${additions.length} bet${additions.length!==1?'s':''}`);
+    if (duplicateCount) messages.push(`Skipped ${duplicateCount} duplicate${duplicateCount!==1?'s':''}`);
+    if (stillNeedsReview.length) messages.push(`${stillNeedsReview.length} still need review`);
+    showToast(messages.length ? messages.join(' • ') : 'No reviewed bets were ready to save', 4500);
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 4500);
   }
-
-  extractedBets = [...stillNeedsReview];
-  renderExtractedBetsReview();
-
-  const messages = [];
-  if (additions.length) messages.push(`Saved ${additions.length} bet${additions.length!==1?'s':''}`);
-  if (duplicateCount) messages.push(`Skipped ${duplicateCount} duplicate${duplicateCount!==1?'s':''}`);
-  if (stillNeedsReview.length) messages.push(`${stillNeedsReview.length} still need review`);
-  showToast(messages.length ? messages.join(' • ') : 'No reviewed bets were ready to save', 4500);
 }
 
 function createBetFingerprint(bet) {
@@ -978,6 +1328,7 @@ function escapeAttr(value) {
 
 // ---- ADD / EDIT MODAL ----
 function openAddModal() {
+  if (!ensureSignedIn('add bets')) return;
   editingId = null;
   document.getElementById('modal-title').textContent = 'Add Bet';
   document.getElementById('modal-delete-btn').style.display = 'none';
@@ -999,16 +1350,28 @@ function openEditModal(id) {
   document.getElementById('bet-modal').classList.add('open');
 }
 function closeModal() { document.getElementById('bet-modal').classList.remove('open'); editingId = null; }
-function saveBetFromModal() {
+async function saveBetFromModal() {
+  if (!ensureSignedIn('save bets')) return;
   const desc = document.getElementById('f-desc').value.trim(); if(!desc) { showToast('Please enter a description'); return; }
   const bet = { id:editingId||(Date.now()+Math.random()), date:document.getElementById('f-date').value||new Date().toISOString().split('T')[0], sportsbook:document.getElementById('f-book').value, sport:document.getElementById('f-sport').value, betType:document.getElementById('f-type').value, description:desc, odds:document.getElementById('f-odds').value.trim(), wager:parseFloat(document.getElementById('f-wager').value)||0, payout:parseFloat(document.getElementById('f-payout').value)||0, result:document.getElementById('f-result').value, source:editingId?(bets.find(x=>String(x.id)===String(editingId))?.source||'manual'):'manual' };
-  if(editingId) { const idx=bets.findIndex(x=>String(x.id)===String(editingId)); if(idx!==-1) bets[idx]=bet; showToast('Bet updated!'); }
-  else { bets.push(bet); showToast('Bet added!'); }
-  saveBets(); renderAll(); closeModal();
+  try {
+    if(editingId) { await updateCloudBet(editingId, bet); showToast('Bet updated!'); }
+    else { await createCloudBet(bet); showToast('Bet added!'); }
+    closeModal();
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 4500);
+  }
 }
-function deleteBetFromModal() {
+async function deleteBetFromModal() {
   if(!editingId||!confirm('Delete this bet?')) return;
-  bets=bets.filter(b=>String(b.id)!==String(editingId)); saveBets(); renderAll(); closeModal(); showToast('Bet deleted');
+  if (!ensureSignedIn('delete bets')) return;
+  try {
+    await deleteCloudBet(editingId);
+    closeModal();
+    showToast('Bet deleted');
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 4500);
+  }
 }
 
 // ---- GRADE MODAL ----
@@ -1022,11 +1385,18 @@ function openGradeModal(id, e) {
 function closeGradeModal() { document.getElementById('grade-modal').classList.remove('open'); gradingId = null; }
 function gradeSet(result) { if(result==='win') { document.getElementById('grade-payout-row').style.display='block'; document.getElementById('grade-payout').focus(); return; } applyGrade(result,null); }
 function gradeConfirmWin() { const p=parseFloat(document.getElementById('grade-payout').value); if(!p||p<=0){showToast('Enter a valid payout');return;} applyGrade('win',p); }
-function applyGrade(result,payout) {
+async function applyGrade(result,payout) {
+  if (!ensureSignedIn('grade bets')) return;
   const idx=bets.findIndex(x=>String(x.id)===String(gradingId)); if(idx===-1) return;
-  bets[idx].result=result; if(payout!==null) bets[idx].payout=payout;
-  saveBets(); renderAll(); closeGradeModal();
-  showToast(`Graded as ${{win:'WIN ✓',loss:'LOSS ✗',push:'PUSH —',pending:'Pending'}[result]}`);
+  const nextBet = { ...bets[idx], result };
+  if(payout!==null) nextBet.payout=payout;
+  try {
+    await updateCloudBet(gradingId, nextBet);
+    closeGradeModal();
+    showToast(`Graded as ${{win:'WIN ✓',loss:'LOSS ✗',push:'PUSH —',pending:'Pending'}[result]}`);
+  } catch (err) {
+    showToast(`Grade failed: ${err.message}`, 4500);
+  }
 }
 document.getElementById('bet-modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
 document.getElementById('grade-modal').addEventListener('click',function(e){if(e.target===this)closeGradeModal();});
@@ -1184,11 +1554,10 @@ function populateFilters() {
 }
 function filterBets(){renderBetsTable();}
 
-function deleteBet(id){if(!confirm('Delete this bet?'))return;bets=bets.filter(b=>String(b.id)!==String(id));saveBets();renderAll();showToast('Bet deleted');}
-function saveBets(){localStorage.setItem('betledger_bets',JSON.stringify(bets));}
+async function deleteBet(id){if(!confirm('Delete this bet?'))return;if(!ensureSignedIn('delete bets'))return;try{await deleteCloudBet(id);showToast('Bet deleted');}catch(err){showToast(`Delete failed: ${err.message}`,4500);}}
 function exportData(){const blob=new Blob([JSON.stringify(bets,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='betledger.json';a.click();}
 function exportCSV(){const cols=['date','sportsbook','sport','betType','description','odds','wager','payout','result'];const rows=bets.map(b=>cols.map(c=>`"${(b[c]||'').toString().replace(/"/g,'""')}"`).join(','));const blob=new Blob([[cols.join(','),...rows].join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='betledger.csv';a.click();}
-function clearAllData(){if(!confirm('Delete ALL bets? Cannot be undone.'))return;bets=[];saveBets();renderAll();showToast('All data cleared');}
+async function clearAllData(){if(!confirm('Delete ALL bets? Cannot be undone.'))return;if(currentUser){try{await deleteAllCloudBets();showToast('All cloud bets cleared');}catch(err){showToast(`Clear failed: ${err.message}`,4500);}}else{localStorage.removeItem(LEGACY_LOCAL_BETS_KEY);legacyLocalBets=[];updateImportLocalUI();showToast('Local legacy bet cache cleared');}}
 let toastTimer = null;
 function showToast(msg, duration=3000){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');if(toastTimer)clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),duration);}
 </script>
