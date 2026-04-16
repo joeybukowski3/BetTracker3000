@@ -26,6 +26,7 @@
   .logo { font-family: 'Bebas Neue', sans-serif; font-size: 1.8rem; letter-spacing: 0.05em; color: var(--accent); }
   .logo span { color: var(--text); }
   nav { display: flex; gap: 0.35rem; flex-wrap: wrap; padding: 0.4rem 0; }
+  .header-auth-wrap { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   .nav-btn { background: none; border: 1px solid transparent; color: var(--muted); padding: 0.38rem 0.85rem; border-radius: 6px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 500; transition: all 0.2s; }
   .nav-btn:hover { border-color: var(--border); color: var(--text); background: var(--surface); }
   .nav-btn.active { color: var(--accent); border-color: var(--accent); background: var(--surface); }
@@ -215,13 +216,16 @@
 
 <header>
   <div class="logo">Bet<span>Ledger</span></div>
-  <nav>
-    <button class="nav-btn active" onclick="showPage('dashboard',this)">Dashboard</button>
-    <button class="nav-btn" onclick="showPage('pl',this)">P&amp;L</button>
-    <button class="nav-btn" onclick="showPage('upload',this)">Upload</button>
-    <button class="nav-btn" onclick="showPage('bets',this)">All Bets</button>
-    <button class="nav-btn" onclick="showPage('settings',this)">Settings</button>
-  </nav>
+  <div class="header-auth-wrap">
+    <span class="auth-state-pill warn" id="header-auth-status">Auth Pending</span>
+    <nav>
+      <button class="nav-btn active" onclick="showPage('dashboard',this)">Dashboard</button>
+      <button class="nav-btn" onclick="showPage('pl',this)">P&amp;L</button>
+      <button class="nav-btn" onclick="showPage('upload',this)">Upload</button>
+      <button class="nav-btn" onclick="showPage('bets',this)">All Bets</button>
+      <button class="nav-btn" onclick="showPage('settings',this)">Settings</button>
+    </nav>
+  </div>
 </header>
 
 <!-- DASHBOARD -->
@@ -373,8 +377,12 @@
       <span class="auth-copy" id="auth-state-copy">Sign in with email to sync bets across devices.</span>
     </div>
     <div class="api-row" id="auth-signin-row">
-      <input type="email" class="api-input" id="auth-email-input" placeholder="Enter your email for a magic link…" />
-      <button class="api-save-btn" id="auth-send-link-btn" onclick="sendMagicLink()">Send Magic Link</button>
+      <input type="email" class="api-input" id="auth-email-input" placeholder="Email address" />
+      <input type="password" class="api-input" id="auth-password-input" placeholder="Password" />
+    </div>
+    <div class="auth-actions" id="auth-auth-actions">
+      <button class="api-save-btn" id="auth-sign-up-btn" onclick="signUpWithEmailPassword()">Sign Up</button>
+      <button class="api-save-btn" id="auth-sign-in-btn" onclick="signInWithEmailPassword()">Sign In</button>
     </div>
     <div class="auth-actions" id="auth-signed-in-actions" style="display:none">
       <button class="api-save-btn" onclick="refreshCloudBets()">Refresh Cloud Bets</button>
@@ -506,6 +514,8 @@ let currentUser = null;
 let isSupabaseConfigured = false;
 let activeCloudBetCount = 0;
 let isImportingLocal = false;
+let isAuthBootstrapping = true;
+let authBootstrapError = '';
 
 // ---- INIT ----
 window.onload = async () => {
@@ -513,9 +523,9 @@ window.onload = async () => {
     document.getElementById('api-key-settings').value = apiKey;
   }
   document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
-  renderAll();
   registerSW();
   await initSupabase();
+  renderAll();
 };
 
 // ---- PWA SERVICE WORKER ----
@@ -564,25 +574,45 @@ async function initSupabase() {
   refreshAuthUI();
   updateImportLocalUI();
   if (!isSupabaseConfigured) {
+    isAuthBootstrapping = false;
+    refreshAuthUI();
     showPage('settings');
     return;
   }
 
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false
+    }
+  });
+
   const { data, error } = await supabaseClient.auth.getSession();
   if (error) {
-    showToast(`Supabase session error: ${error.message}`, 4500);
+    authBootstrapError = `Session lookup failed: ${error.message}`;
+    isAuthBootstrapping = false;
     refreshAuthUI();
+    showToast(authBootstrapError, 5000);
+    showPage('settings');
     return;
   }
 
-  supabaseClient.auth.onAuthStateChange((_event, session) => {
+  supabaseClient.auth.onAuthStateChange((event, session) => {
     setTimeout(() => {
-      handleAuthSession(session).catch(err => showToast(err.message || 'Auth update failed', 4500));
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        handleAuthSession(session).catch(err => {
+          authBootstrapError = err.message || 'Auth update failed';
+          refreshAuthUI();
+          showToast(authBootstrapError, 4500);
+        });
+      }
     }, 0);
   });
 
   await handleAuthSession(data?.session || null, true);
+  isAuthBootstrapping = false;
+  refreshAuthUI();
 }
 
 async function handleAuthSession(session, isInitialLoad = false) {
@@ -607,22 +637,42 @@ async function handleAuthSession(session, isInitialLoad = false) {
 
 function refreshAuthUI() {
   const pill = document.getElementById('auth-state-pill');
+  const headerPill = document.getElementById('header-auth-status');
   const stateCopy = document.getElementById('auth-state-copy');
   const detail = document.getElementById('auth-detail-status');
   const signinRow = document.getElementById('auth-signin-row');
+  const authActions = document.getElementById('auth-auth-actions');
   const signedInActions = document.getElementById('auth-signed-in-actions');
-  const sendBtn = document.getElementById('auth-send-link-btn');
+  const signUpBtn = document.getElementById('auth-sign-up-btn');
+  const signInBtn = document.getElementById('auth-sign-in-btn');
   const importBtn = document.getElementById('import-local-btn');
 
-  if (sendBtn) sendBtn.disabled = !isSupabaseConfigured;
+  if (signUpBtn) signUpBtn.disabled = !isSupabaseConfigured || isAuthBootstrapping;
+  if (signInBtn) signInBtn.disabled = !isSupabaseConfigured || isAuthBootstrapping;
   if (importBtn) importBtn.disabled = isImportingLocal;
 
   if (!isSupabaseConfigured) {
     pill.textContent = 'Config Needed';
     pill.className = 'auth-state-pill warn';
+    headerPill.textContent = 'Sync Off';
+    headerPill.className = 'auth-state-pill warn';
     stateCopy.textContent = 'Paste your Supabase project URL and anon key into the constants near the top of the script.';
     detail.textContent = 'Supabase sync is disabled until those constants are filled in.';
     signinRow.style.display = 'flex';
+    authActions.style.display = 'flex';
+    signedInActions.style.display = 'none';
+    return;
+  }
+
+  if (isAuthBootstrapping) {
+    pill.textContent = 'Checking Session';
+    pill.className = 'auth-state-pill warn';
+    headerPill.textContent = 'Auth Pending';
+    headerPill.className = 'auth-state-pill warn';
+    stateCopy.textContent = 'Checking for an existing Supabase session.';
+    detail.textContent = 'If you just refreshed or reopened the app, wait a moment while the saved session is restored.';
+    signinRow.style.display = 'none';
+    authActions.style.display = 'none';
     signedInActions.style.display = 'none';
     return;
   }
@@ -630,18 +680,24 @@ function refreshAuthUI() {
   if (currentUser) {
     pill.textContent = 'Signed In';
     pill.className = 'auth-state-pill ok';
+    headerPill.textContent = 'Signed In';
+    headerPill.className = 'auth-state-pill ok';
     stateCopy.textContent = `Signed in as ${currentUser.email}. Bets now sync from Supabase across devices.`;
     detail.textContent = 'Supabase is the source of truth for bet data. Add RLS policies before using this publicly.';
     signinRow.style.display = 'none';
+    authActions.style.display = 'none';
     signedInActions.style.display = 'flex';
     return;
   }
 
   pill.textContent = 'Signed Out';
   pill.className = 'auth-state-pill off';
-  stateCopy.textContent = 'Sign in with email to load and sync your bets across devices.';
-  detail.textContent = 'A magic link will open this app and attach your cloud bet history to your account.';
+  headerPill.textContent = authBootstrapError ? 'Auth Error' : 'Signed Out';
+  headerPill.className = `auth-state-pill ${authBootstrapError ? 'warn' : 'off'}`;
+  stateCopy.textContent = 'Sign in with email and password to load and sync your bets across devices.';
+  detail.textContent = authBootstrapError || 'Use Sign Up once for a new account, then Sign In on desktop or phone with the same credentials.';
   signinRow.style.display = 'flex';
+  authActions.style.display = 'flex';
   signedInActions.style.display = 'none';
 }
 
@@ -660,26 +716,67 @@ function updateImportLocalUI() {
   button.textContent = isImportingLocal ? 'Importing…' : 'Import Local Bets';
 }
 
-async function sendMagicLink() {
+function getAuthCredentials() {
+  const email = document.getElementById('auth-email-input').value.trim();
+  const password = document.getElementById('auth-password-input').value;
+  return { email, password };
+}
+
+async function signUpWithEmailPassword() {
   if (!isSupabaseConfigured) {
     showToast('Paste your Supabase URL and anon key first.', 4500);
     return;
   }
-  const email = document.getElementById('auth-email-input').value.trim();
+  const { email, password } = getAuthCredentials();
   if (!email) {
-    showToast('Enter an email address to receive a magic link.');
+    showToast('Enter an email address.', 4500);
+    return;
+  }
+  if (!password || password.length < 6) {
+    showToast('Use a password with at least 6 characters.', 4500);
     return;
   }
 
-  const { error } = await supabaseClient.auth.signInWithOtp({
+  const { data, error } = await supabaseClient.auth.signUp({
     email,
-    options: { emailRedirectTo: window.location.href }
+    password
   });
   if (error) {
-    showToast(`Magic link error: ${error.message}`, 4500);
+    showToast(`Sign up error: ${error.message}`, 5000);
     return;
   }
-  showToast(`Magic link sent to ${email}`, 4500);
+
+  if (data.session) {
+    showToast(`Account created and signed in as ${email}`, 4500);
+    return;
+  }
+  if (data.user) {
+    showToast(`Account created for ${email}. Confirm the email in Supabase if email confirmation is enabled.`, 5500);
+    return;
+  }
+  showToast('Sign up completed. Try signing in.', 4500);
+}
+
+async function signInWithEmailPassword() {
+  if (!isSupabaseConfigured) {
+    showToast('Paste your Supabase URL and anon key first.', 4500);
+    return;
+  }
+  const { email, password } = getAuthCredentials();
+  if (!email || !password) {
+    showToast('Enter both email and password.', 4500);
+    return;
+  }
+
+  const { error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
+  if (error) {
+    showToast(`Sign in error: ${error.message}`, 5000);
+    return;
+  }
+  showToast(`Signed in as ${email}`, 3500);
 }
 
 async function signOutUser() {
