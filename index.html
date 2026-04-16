@@ -77,6 +77,21 @@
   .progress-status { min-width: 20px; text-align: center; }
   .progress-name { flex: 1; color: var(--text); font-size: 0.82rem; }
   .progress-state { color: var(--muted); font-size: 0.76rem; }
+  .review-summary { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
+  .review-meta { color: var(--muted); font-size: 0.8rem; }
+  .review-actions { display: flex; gap: 0.65rem; flex-wrap: wrap; }
+  .review-table-wrap { overflow-x: auto; }
+  .review-table { width: 100%; border-collapse: collapse; min-width: 980px; }
+  .review-table th { padding: 0.65rem 0.55rem; }
+  .review-table td { padding: 0.55rem; border-top: 1px solid var(--border); vertical-align: top; }
+  .review-table tbody tr.needs-review-row td { background: rgba(245,200,66,0.05); }
+  .review-input, .review-select { width: 100%; min-width: 90px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 0.48rem 0.55rem; border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; outline: none; }
+  .review-input:focus, .review-select:focus { border-color: var(--accent); }
+  .review-input.mono { font-family: 'DM Mono', monospace; }
+  .review-description { min-width: 220px; }
+  .review-warning-list { margin-top: 0.35rem; font-size: 0.72rem; color: var(--push); line-height: 1.35; }
+  .badge-review { background: rgba(245,200,66,0.12); color: var(--push); }
+  .review-empty { color: var(--muted); font-size: 0.84rem; padding: 0.25rem 0; }
 
   /* API info box */
   .info-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; }
@@ -176,6 +191,10 @@
   /* Gemini badge */
   .powered-by { font-size: 0.68rem; color: var(--muted); margin-top: 0.4rem; }
   .powered-by a { color: var(--accent); text-decoration: none; }
+  @media (max-width: 720px) {
+    .review-actions { width: 100%; }
+    .review-actions .btn-primary, .review-actions .btn-secondary { flex: 1; }
+  }
 </style>
 </head>
 <body>
@@ -264,7 +283,7 @@
       <button class="api-save-btn" onclick="saveApiKey()">Save</button>
     </div>
     <div class="api-status" id="api-status">No key saved. Get a free key at <a href="https://aistudio.google.com" target="_blank" style="color:var(--accent)">aistudio.google.com</a> → "Get API Key"</div>
-    <div class="powered-by">Powered by <a href="https://aistudio.google.com" target="_blank">Google Gemini</a> — free tier includes 1,500 requests/day</div>
+    <div class="powered-by">Powered by <a href="https://aistudio.google.com" target="_blank">Google Gemini</a> — model availability and free-tier limits can vary by model and account.</div>
   </div>
   <div class="upload-zone" id="upload-zone">
     <input type="file" id="file-input" accept="image/*" multiple onchange="handleFiles(this.files)" />
@@ -275,6 +294,37 @@
   <div id="preview-grid" class="preview-grid"></div>
   <button class="process-btn" id="process-btn" onclick="processScreenshots()" disabled>Analyze with Gemini AI →</button>
   <div id="progress-section"></div>
+  <div class="info-box" id="extracted-review-section" style="display:none">
+    <div class="info-box-title">Review Extracted Bets</div>
+    <div class="review-summary">
+      <div class="review-meta" id="extracted-review-meta"></div>
+      <div class="review-actions">
+        <button class="btn-primary" onclick="confirmExtractedBets()">Add All Confirmed Bets</button>
+        <button class="btn-secondary" onclick="discardExtraction()">Discard Extraction</button>
+      </div>
+    </div>
+    <div class="review-table-wrap">
+      <table class="review-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Date</th>
+            <th>Book</th>
+            <th>Sport</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Odds</th>
+            <th>Wager</th>
+            <th>Payout</th>
+            <th>Result</th>
+            <th>Source</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="extracted-review-body"></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <!-- ALL BETS -->
@@ -303,14 +353,14 @@
 </div>
 
 <!-- SETTINGS -->
-<div class="page" id="page-settings">
+  <div class="page" id="page-settings">
   <div class="info-box">
     <div class="info-box-title">Gemini AI API Key</div>
     <div class="api-row">
       <input type="password" class="api-input" id="api-key-settings" placeholder="Paste your Gemini API key…" />
       <button class="api-save-btn" onclick="saveApiKeySettings()">Save</button>
     </div>
-    <div class="api-status">Stored locally in your browser. Never sent anywhere except Google's API.</div>
+    <div class="api-status">Stored locally in your browser for private testing only. Move the key server-side before any public deployment.</div>
   </div>
   <div class="info-box">
     <div class="info-box-title">Data Management</div>
@@ -330,7 +380,7 @@
     <div class="form-grid">
       <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-input" id="f-date" /></div>
       <div class="form-group"><label class="form-label">Sportsbook</label>
-        <select class="form-select" id="f-book"><option>DraftKings</option><option>FanDuel</option><option>BetMGM</option><option>Caesars</option><option>Other</option></select></div>
+        <select class="form-select" id="f-book"><option>DraftKings</option><option>FanDuel</option><option>BetMGM</option><option>Caesars</option><option>Unknown</option><option>Other</option></select></div>
       <div class="form-group"><label class="form-label">Sport</label>
         <select class="form-select" id="f-sport"><option>NFL</option><option>NBA</option><option>MLB</option><option>NHL</option><option>NCAAF</option><option>NCAAB</option><option>Soccer</option><option>Tennis</option><option>Golf</option><option>MMA</option><option>Boxing</option><option>Other</option></select></div>
       <div class="form-group"><label class="form-label">Bet Type</label>
@@ -372,9 +422,36 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
+const GEMINI_MODEL = 'gemini-2.5-flash'; // Change this single constant if Google changes the supported vision-capable model you want to use.
+const SPORTSBOOK_OPTIONS = ['DraftKings', 'FanDuel', 'BetMGM', 'Caesars', 'Unknown'];
+const SPORT_OPTIONS = ['NFL', 'NBA', 'MLB', 'NHL', 'NCAAF', 'NCAAB', 'Soccer', 'Tennis', 'Golf', 'MMA', 'Boxing', 'Other'];
+const BET_TYPE_OPTIONS = ['Spread', 'Moneyline', 'Over/Under', 'Parlay', 'Player Prop', 'Futures', 'Same Game Parlay', 'Other'];
+const RESULT_OPTIONS = ['win', 'loss', 'push', 'pending'];
+const EXTRACTION_RESPONSE_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      date: { type: 'string' },
+      sportsbook: { type: 'string', enum: SPORTSBOOK_OPTIONS },
+      sport: { type: 'string', enum: SPORT_OPTIONS },
+      betType: { type: 'string', enum: BET_TYPE_OPTIONS },
+      description: { type: 'string' },
+      odds: { type: 'string' },
+      wager: { type: 'number' },
+      payout: { type: 'number' },
+      result: { type: 'string', enum: RESULT_OPTIONS }
+    },
+    required: ['date', 'sportsbook', 'sport', 'betType', 'description', 'odds', 'wager', 'payout', 'result'],
+    propertyOrdering: ['date', 'sportsbook', 'sport', 'betType', 'description', 'odds', 'wager', 'payout', 'result']
+  }
+};
+
 // ---- STATE ----
 let bets = JSON.parse(localStorage.getItem('betledger_bets') || '[]');
 let pendingFiles = [];
+let extractedBets = [];
+// Local browser storage is acceptable only for private/local testing. Move API keys server-side before any public deployment.
 let apiKey = localStorage.getItem('betledger_gemini_key') || '';
 let editingId = null;
 let gradingId = null;
@@ -472,32 +549,120 @@ async function processScreenshots() {
   const btn = document.getElementById('process-btn');
   btn.disabled = true; btn.textContent = 'Analyzing…';
   const prog = document.getElementById('progress-section'); prog.innerHTML = '';
-  let successCount = 0;
+  let extractedCount = 0;
+  let needsReviewCount = 0;
+  let failedCount = 0;
+  const nextExtractedBets = [...extractedBets];
 
   for (const file of pendingFiles) {
     const item = document.createElement('div'); item.className = 'progress-item';
-    item.innerHTML = `<span class="progress-status">⏳</span><span class="progress-name">${file.name}</span><span class="progress-state">Sending to Gemini…</span>`;
+    item.innerHTML = `<span class="progress-status">⏳</span><span class="progress-name">${file.name}</span><span class="progress-state">Uploading / analyzing…</span>`;
     prog.appendChild(item);
 
     try {
+      setProgressState(item, '⏳', 'Uploading / analyzing…');
       const base64 = await toBase64(file);
       const mimeType = file.type || 'image/png';
+      const extraction = await extractBetsWithGemini(base64, mimeType);
+      const normalized = extraction.bets.map(rawBet => normalizeExtractedBet(rawBet, file.name));
+      normalized.forEach(bet => nextExtractedBets.push(bet));
+      extractedCount += normalized.length;
 
-      // Gemini 1.5 Flash — fast, free, supports vision
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+      const fileNeedsReview = normalized.filter(b => b.needsReview).length;
+      needsReviewCount += fileNeedsReview;
+      if (fileNeedsReview) {
+        setProgressState(item, '⚠️', `${normalized.length} bet${normalized.length!==1?'s':''} extracted, needs review`);
+      } else {
+        setProgressState(item, '✅', `${normalized.length} bet${normalized.length!==1?'s':''} extracted`);
+      }
 
-      const body = {
-        contents: [{
-          parts: [
-            {
-              inline_data: { mime_type: mimeType, data: base64 }
-            },
-            {
-              text: `You are a sports betting data extractor. Analyze this sportsbook screenshot and extract ALL bets visible.
+    } catch(err) {
+      failedCount++;
+      setProgressState(item, '❌', `Failed: ${err.userMessage || err.message}`);
+      if (err.isQuotaOrModelIssue) showToast(err.userMessage || 'The selected Gemini model or tier may not be available.', 5000);
+    }
+  }
 
-Return ONLY a valid JSON array. No markdown, no backticks, no explanation. Just the raw JSON array.
+  extractedBets = nextExtractedBets;
+  renderExtractedBetsReview();
+  pendingFiles = []; renderPreviews();
+  btn.disabled = false; btn.textContent = 'Analyze with Gemini AI →';
+  document.getElementById('process-btn').disabled = pendingFiles.length === 0;
+  const summaryParts = [];
+  summaryParts.push(`Extraction finished: ${extractedCount} bet${extractedCount!==1?'s':''} added to review`);
+  if (needsReviewCount) summaryParts.push(`${needsReviewCount} need review`);
+  if (failedCount) summaryParts.push(`${failedCount} failed`);
+  showToast(summaryParts.join(' • '), 4500);
+}
 
-Each bet must have exactly these fields:
+function toBase64(file) {
+  return new Promise((res,rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
+}
+
+async function extractBetsWithGemini(base64, mimeType) {
+  try {
+    const structuredData = await callGemini(base64, mimeType, true);
+    return { bets: parseGeminiStructuredResponse(structuredData), mode: 'structured' };
+  } catch (err) {
+    if (!shouldFallbackToText(err)) throw err;
+    const textData = await callGemini(base64, mimeType, false);
+    return { bets: parseGeminiTextResponse(textData), mode: 'text' };
+  }
+}
+
+async function callGemini(base64, mimeType, useStructuredOutput) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const body = buildGeminiRequestBody(base64, mimeType, useStructuredOutput);
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  let payload = null;
+  try { payload = await resp.json(); } catch (_) {}
+  if (!resp.ok) throw buildGeminiError(resp.status, payload, useStructuredOutput);
+  return payload || {};
+}
+
+function buildGeminiRequestBody(base64, mimeType, useStructuredOutput) {
+  const generationConfig = { temperature: 0.1 };
+  if (useStructuredOutput) {
+    generationConfig.responseMimeType = 'application/json';
+    generationConfig.responseJsonSchema = EXTRACTION_RESPONSE_SCHEMA;
+  }
+
+  return {
+    contents: [{
+      parts: [
+        { inline_data: { mime_type: mimeType, data: base64 } },
+        { text: useStructuredOutput ? buildStructuredExtractionPrompt() : buildTextExtractionPrompt() }
+      ]
+    }],
+    generationConfig
+  };
+}
+
+function buildStructuredExtractionPrompt() {
+  return `Extract every sportsbook bet visible in this screenshot.
+
+Return an array that matches the requested JSON schema exactly.
+
+Rules:
+- One object per visible bet.
+- Use an empty string when a text field is not visible.
+- Use 0 for wager or payout when not visible.
+- Normalize sportsbook to DraftKings, FanDuel, BetMGM, Caesars, or Unknown when possible.
+- Normalize result to win, loss, push, or pending.
+- Do not include commentary or wrapper objects.`;
+}
+
+function buildTextExtractionPrompt() {
+  return `You are a sports betting data extractor. Analyze this sportsbook screenshot and extract all visible bets.
+
+Return only a valid JSON array. No markdown, no backticks, no explanation.
+
+Each item must include:
 {
   "date": "YYYY-MM-DD or empty string if not visible",
   "sportsbook": "DraftKings or FanDuel or BetMGM or Caesars or Unknown",
@@ -510,65 +675,305 @@ Each bet must have exactly these fields:
   "result": "win or loss or push or pending"
 }
 
-If no bets are visible, return an empty array: []`
-            }
-          ]
-        }],
-        generationConfig: { temperature: 0.1 }
-      };
-
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error?.message || `HTTP ${resp.status}`);
-      }
-
-      const data = await resp.json();
-      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-
-      // Strip any accidental markdown fences
-      const cleaned = rawText.replace(/```json|```/g, '').trim();
-      let extracted = [];
-      try { extracted = JSON.parse(cleaned); } catch(e) { extracted = []; }
-      if (!Array.isArray(extracted)) extracted = [];
-
-      const newBets = extracted.map(b => ({
-        id: Date.now() + Math.random(),
-        date: b.date || new Date().toISOString().split('T')[0],
-        sportsbook: b.sportsbook || 'Unknown',
-        sport: b.sport || 'Other',
-        betType: b.betType || 'Other',
-        description: b.description || '',
-        odds: b.odds || '',
-        wager: parseFloat(b.wager) || 0,
-        payout: parseFloat(b.payout) || 0,
-        result: (b.result || 'pending').toLowerCase(),
-        source: file.name
-      }));
-
-      bets.push(...newBets); saveBets(); successCount += newBets.length;
-      item.querySelector('.progress-status').textContent = '✅';
-      item.querySelector('.progress-state').textContent = `${newBets.length} bet${newBets.length!==1?'s':''} extracted`;
-
-    } catch(err) {
-      item.querySelector('.progress-status').textContent = '❌';
-      item.querySelector('.progress-state').textContent = 'Error: ' + err.message;
-    }
-  }
-
-  pendingFiles = []; renderPreviews();
-  btn.disabled = false; btn.textContent = 'Analyze with Gemini AI →';
-  renderAll();
-  showToast(`✅ Done! ${successCount} bet${successCount!==1?'s':''} logged.`);
+If no bets are visible, return [].`;
 }
 
-function toBase64(file) {
-  return new Promise((res,rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
+function parseGeminiStructuredResponse(data) {
+  const parsed = parseJsonArrayFromGeminiText(extractGeminiText(data));
+  if (!Array.isArray(parsed)) throw buildParsingError('Gemini returned structured output in an unexpected format.');
+  return parsed;
+}
+
+function parseGeminiTextResponse(data) {
+  const parsed = parseJsonArrayFromGeminiText(extractGeminiText(data));
+  if (!Array.isArray(parsed)) throw buildParsingError('Gemini returned text that could not be parsed as a bet list.');
+  return parsed;
+}
+
+function parseJsonArrayFromGeminiText(rawText) {
+  const cleaned = (rawText || '').replace(/```json|```/gi, '').trim();
+  if (!cleaned) return [];
+  try {
+    const parsed = JSON.parse(cleaned);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    throw buildParsingError('Gemini returned invalid JSON. Please retry or review the screenshot.');
+  }
+}
+
+function extractGeminiText(data) {
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textPart = parts.find(part => typeof part.text === 'string');
+  if (textPart?.text) return textPart.text;
+  return '[]';
+}
+
+function shouldFallbackToText(err) {
+  return !!(err && (err.isStructuredOutputIssue || err.isParsingError));
+}
+
+function buildGeminiError(status, payload, useStructuredOutput) {
+  const apiError = payload?.error || {};
+  const message = String(apiError.message || `HTTP ${status}`);
+  const normalized = message.toLowerCase();
+  const err = new Error(message);
+  err.status = status;
+  err.apiMessage = message;
+  err.isStructuredOutputIssue = useStructuredOutput && (normalized.includes('responsejsonschema') || normalized.includes('response schema') || normalized.includes('response_mime_type') || normalized.includes('responsemimetype') || normalized.includes('schema'));
+  err.isQuotaOrModelIssue = normalized.includes('quota') || normalized.includes('billing') || normalized.includes('free tier') || normalized.includes('free-tier') || normalized.includes('rate limit') || normalized.includes('resource exhausted') || normalized.includes('model') || normalized.includes('not found') || normalized.includes('unsupported') || normalized.includes('permission denied');
+  err.userMessage = err.isQuotaOrModelIssue
+    ? `Gemini could not analyze this screenshot because the selected model (${GEMINI_MODEL}) or your current tier may not be available. Check model access, quota, and billing, then try again.`
+    : `Gemini request failed: ${message}`;
+  return err;
+}
+
+function buildParsingError(message) {
+  const err = new Error(message);
+  err.isParsingError = true;
+  err.userMessage = message;
+  return err;
+}
+
+function normalizeExtractedBet(rawBet, sourceName) {
+  const bet = {
+    id: createBetId(),
+    date: normalizeDate(rawBet?.date),
+    sportsbook: normalizeSportsbook(rawBet?.sportsbook),
+    sport: normalizeSport(rawBet?.sport),
+    betType: normalizeBetType(rawBet?.betType),
+    description: String(rawBet?.description || '').trim(),
+    odds: normalizeOdds(rawBet?.odds),
+    wager: normalizeMoney(rawBet?.wager),
+    payout: normalizeMoney(rawBet?.payout),
+    result: normalizeResult(rawBet?.result),
+    source: sourceName || 'upload'
+  };
+  updateExtractedBetValidation(bet);
+  return bet;
+}
+
+function createBetId() {
+  return Date.now() + Math.random();
+}
+
+function normalizeDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return new Date().toISOString().split('T')[0];
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) return raw;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? new Date().toISOString().split('T')[0] : parsed.toISOString().split('T')[0];
+}
+
+function normalizeSportsbook(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return 'Unknown';
+  if (raw.includes('draft')) return 'DraftKings';
+  if (raw.includes('fan')) return 'FanDuel';
+  if (raw.includes('mgm')) return 'BetMGM';
+  if (raw.includes('caesar')) return 'Caesars';
+  return SPORTSBOOK_OPTIONS.includes(String(value || '').trim()) ? String(value || '').trim() : 'Unknown';
+}
+
+function normalizeSport(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  const map = {
+    nfl: 'NFL',
+    football: 'NFL',
+    nba: 'NBA',
+    basketball: 'NBA',
+    mlb: 'MLB',
+    baseball: 'MLB',
+    nhl: 'NHL',
+    hockey: 'NHL',
+    ncaaf: 'NCAAF',
+    'college football': 'NCAAF',
+    ncaab: 'NCAAB',
+    'college basketball': 'NCAAB',
+    soccer: 'Soccer',
+    tennis: 'Tennis',
+    golf: 'Golf',
+    mma: 'MMA',
+    ufc: 'MMA',
+    boxing: 'Boxing'
+  };
+  if (map[raw]) return map[raw];
+  return SPORT_OPTIONS.find(option => option.toLowerCase() === raw) || 'Other';
+}
+
+function normalizeBetType(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return 'Other';
+  if (raw.includes('same game')) return 'Same Game Parlay';
+  if (raw.includes('parlay')) return 'Parlay';
+  if (raw.includes('moneyline') || raw === 'ml') return 'Moneyline';
+  if (raw.includes('spread')) return 'Spread';
+  if (raw.includes('over') || raw.includes('under') || raw.includes('total')) return 'Over/Under';
+  if (raw.includes('prop')) return 'Player Prop';
+  if (raw.includes('future')) return 'Futures';
+  return BET_TYPE_OPTIONS.find(option => option.toLowerCase() === raw) || 'Other';
+}
+
+function normalizeResult(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'won' || raw === 'w') return 'win';
+  if (raw === 'lost' || raw === 'l') return 'loss';
+  if (raw === 'void') return 'push';
+  return RESULT_OPTIONS.includes(raw) ? raw : 'pending';
+}
+
+function normalizeOdds(value) {
+  const raw = String(value ?? '').trim();
+  return raw.replace(/\s+/g, ' ');
+}
+
+function normalizeMoney(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  const cleaned = String(value).replace(/[^0-9.-]/g, '');
+  const parsed = parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function updateExtractedBetValidation(bet) {
+  const warnings = [];
+  if (!bet.description) warnings.push('Description missing');
+  if (!bet.sportsbook || bet.sportsbook === 'Unknown') warnings.push('Sportsbook needs confirmation');
+  if (!bet.odds) warnings.push('Odds missing');
+  if (!(bet.wager > 0)) warnings.push('Wager must be greater than 0');
+  bet.needsReview = warnings.length > 0;
+  bet.reviewWarnings = warnings;
+  return bet;
+}
+
+function setProgressState(item, icon, message) {
+  item.querySelector('.progress-status').textContent = icon;
+  item.querySelector('.progress-state').textContent = message;
+}
+
+function renderExtractedBetsReview() {
+  const section = document.getElementById('extracted-review-section');
+  const meta = document.getElementById('extracted-review-meta');
+  const body = document.getElementById('extracted-review-body');
+  if (!extractedBets.length) {
+    section.style.display = 'none';
+    body.innerHTML = '';
+    meta.textContent = '';
+    return;
+  }
+
+  const needsReviewCount = extractedBets.filter(b => b.needsReview).length;
+  meta.textContent = `${extractedBets.length} extracted bet${extractedBets.length!==1?'s':''} in review${needsReviewCount ? ` • ${needsReviewCount} need review before saving` : ' • ready to confirm'}`;
+  body.innerHTML = extractedBets.map(bet => `
+    <tr class="${bet.needsReview ? 'needs-review-row' : ''}">
+      <td>
+        <span class="badge ${bet.needsReview ? 'badge-review' : 'badge-pending'}">${bet.needsReview ? 'Needs Review' : 'Ready'}</span>
+        ${bet.needsReview && bet.reviewWarnings?.length ? `<div class="review-warning-list">${bet.reviewWarnings.join(' • ')}</div>` : ''}
+      </td>
+      <td><input class="review-input mono" type="date" value="${escapeAttr(bet.date || '')}" onchange="updateExtractedBetField('${bet.id}','date',this.value)"></td>
+      <td>${buildReviewSelect('sportsbook', SPORTSBOOK_OPTIONS, bet.sportsbook, bet.id)}</td>
+      <td>${buildReviewSelect('sport', SPORT_OPTIONS, bet.sport, bet.id)}</td>
+      <td>${buildReviewSelect('betType', BET_TYPE_OPTIONS, bet.betType, bet.id)}</td>
+      <td><input class="review-input review-description" type="text" value="${escapeAttr(bet.description || '')}" onchange="updateExtractedBetField('${bet.id}','description',this.value)"></td>
+      <td><input class="review-input mono" type="text" value="${escapeAttr(bet.odds || '')}" onchange="updateExtractedBetField('${bet.id}','odds',this.value)"></td>
+      <td><input class="review-input mono" type="number" min="0" step="0.01" value="${escapeAttr(String(bet.wager ?? ''))}" onchange="updateExtractedBetField('${bet.id}','wager',this.value)"></td>
+      <td><input class="review-input mono" type="number" min="0" step="0.01" value="${escapeAttr(String(bet.payout ?? ''))}" onchange="updateExtractedBetField('${bet.id}','payout',this.value)"></td>
+      <td>${buildReviewSelect('result', RESULT_OPTIONS, bet.result, bet.id)}</td>
+      <td style="font-size:.74rem;color:var(--muted)">${escapeHtml(bet.source || 'upload')}</td>
+      <td><button class="delete-btn" onclick="removeExtractedBet('${bet.id}')">✕</button></td>
+    </tr>
+  `).join('');
+  section.style.display = 'block';
+}
+
+function buildReviewSelect(field, options, value, id) {
+  return `<select class="review-select" onchange="updateExtractedBetField('${id}','${field}',this.value)">${options.map(option => {
+    return `<option value="${escapeAttr(option)}" ${option===value?'selected':''}>${escapeHtml(option)}</option>`;
+  }).join('')}</select>`;
+}
+
+function updateExtractedBetField(id, field, value) {
+  const bet = extractedBets.find(item => String(item.id) === String(id));
+  if (!bet) return;
+  if (field === 'wager' || field === 'payout') bet[field] = normalizeMoney(value);
+  else if (field === 'sportsbook') bet.sportsbook = normalizeSportsbook(value);
+  else if (field === 'sport') bet.sport = normalizeSport(value);
+  else if (field === 'betType') bet.betType = normalizeBetType(value);
+  else if (field === 'result') bet.result = normalizeResult(value);
+  else if (field === 'odds') bet.odds = normalizeOdds(value);
+  else if (field === 'date') bet.date = normalizeDate(value);
+  else bet[field] = String(value || '').trim();
+  updateExtractedBetValidation(bet);
+  renderExtractedBetsReview();
+}
+
+function removeExtractedBet(id) {
+  extractedBets = extractedBets.filter(b => String(b.id) !== String(id));
+  renderExtractedBetsReview();
+}
+
+function discardExtraction() {
+  extractedBets = [];
+  renderExtractedBetsReview();
+  showToast('Extracted bets discarded');
+}
+
+function confirmExtractedBets() {
+  if (!extractedBets.length) return;
+  const ready = extractedBets.filter(b => !b.needsReview);
+  const stillNeedsReview = extractedBets.filter(b => b.needsReview);
+  const existingFingerprints = new Set(bets.map(createBetFingerprint));
+  const batchFingerprints = new Set();
+  const additions = [];
+  let duplicateCount = 0;
+
+  ready.forEach(bet => {
+    const fingerprint = createBetFingerprint(bet);
+    if (existingFingerprints.has(fingerprint) || batchFingerprints.has(fingerprint)) {
+      duplicateCount++;
+      return;
+    }
+    batchFingerprints.add(fingerprint);
+    additions.push({ ...bet });
+  });
+
+  if (additions.length) {
+    bets.push(...additions);
+    saveBets();
+    renderAll();
+  }
+
+  extractedBets = [...stillNeedsReview];
+  renderExtractedBetsReview();
+
+  const messages = [];
+  if (additions.length) messages.push(`Saved ${additions.length} bet${additions.length!==1?'s':''}`);
+  if (duplicateCount) messages.push(`Skipped ${duplicateCount} duplicate${duplicateCount!==1?'s':''}`);
+  if (stillNeedsReview.length) messages.push(`${stillNeedsReview.length} still need review`);
+  showToast(messages.length ? messages.join(' • ') : 'No reviewed bets were ready to save', 4500);
+}
+
+function createBetFingerprint(bet) {
+  return [
+    String(bet.date || '').trim().toLowerCase(),
+    String(bet.sportsbook || '').trim().toLowerCase(),
+    String(bet.description || '').trim().toLowerCase(),
+    String(bet.odds || '').trim().toLowerCase(),
+    Number(bet.wager || 0).toFixed(2),
+    String(bet.source || '').trim().toLowerCase()
+  ].join('|');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
 }
 
 // ---- ADD / EDIT MODAL ----
@@ -784,7 +1189,8 @@ function saveBets(){localStorage.setItem('betledger_bets',JSON.stringify(bets));
 function exportData(){const blob=new Blob([JSON.stringify(bets,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='betledger.json';a.click();}
 function exportCSV(){const cols=['date','sportsbook','sport','betType','description','odds','wager','payout','result'];const rows=bets.map(b=>cols.map(c=>`"${(b[c]||'').toString().replace(/"/g,'""')}"`).join(','));const blob=new Blob([[cols.join(','),...rows].join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='betledger.csv';a.click();}
 function clearAllData(){if(!confirm('Delete ALL bets? Cannot be undone.'))return;bets=[];saveBets();renderAll();showToast('All data cleared');}
-function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
+let toastTimer = null;
+function showToast(msg, duration=3000){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');if(toastTimer)clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),duration);}
 </script>
 </body>
 </html>
